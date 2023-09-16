@@ -24,10 +24,6 @@ def SC1D_main(args) :
         args.seq_length = 4096
         args.num_channels = 12
         args.num_classes = 6
-    elif args.data_type == '12ECGPaper':
-        args.image_size = 512
-        args.num_channels = 3
-        args.num_classes = 6
 
     args.distributed = False
     if args.multiprocessing_distributed and args.train:
@@ -37,13 +33,13 @@ def SC1D_main(args) :
         experiment = SignalClassificationExperiment(args)
         if args.train:
             model, optimizer, scheduler, history, test_results, metric_list = experiment.fit()
-            save_result(args, model, optimizer, scheduler, history, test_results, args.final_epoch, metric_list)
+            save_result(args, model, optimizer, scheduler, history, test_results, args.final_epoch)
         else:
             test_results, metric_list = experiment.fit()
             model_dirs = get_save_path(args)
 
             print("Save {} Model Test Results...".format(args.model_name))
-            save_metrics(test_results, model_dirs, args.final_epoch, metric_list)
+            save_metrics(test_results, model_dirs, args.final_epoch)
 
         # model, optimizer, scheduler, history, test_result, metric_list = experiment.fit()
         # save_result(args, model, optimizer, scheduler, history, test_result, args.final_epoch, metric_list=metric_list)

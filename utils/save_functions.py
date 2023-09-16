@@ -8,7 +8,7 @@ import pandas as pd
 from .get_functions import get_save_path
 from .plot_functions import plot_loss_acc
 
-def save_result(args, model, optimizer, scheduler, history, test_results, current_epoch, metric_list):
+def save_result(args, model, optimizer, scheduler, history, test_results, current_epoch):
     if (args.distributed and torch.distributed.get_rank() == 0) or not args.multiprocessing_distributed:
         model_dirs = get_save_path(args)
 
@@ -19,7 +19,7 @@ def save_result(args, model, optimizer, scheduler, history, test_results, curren
 
         print("STEP2. Save {} Model Test Results...".format(args.model_name))
         # if type(test_results) is list:
-        save_metrics(test_results, model_dirs, current_epoch, metric_list)
+        save_metrics(test_results, model_dirs, current_epoch)
 
         if args.final_epoch == current_epoch:
             print("STEP3. Save {} Model History...".format(args.model_name))
@@ -40,27 +40,29 @@ def save_model(model, optimizer, scheduler, model_dirs, current_epoch):
 
     torch.save(check_point, os.path.join(model_dirs, 'model_weights/model_weight(EPOCH {}).pth.tar'.format(current_epoch)))
 
-def save_metrics(test_results, model_dirs, current_epoch, metric_list):
-    test_results_dict = dict()
-    print(test_results)
-    for metric, result in zip(metric_list, np.mean(test_results, axis=1)): # test_loss, result with normal, result without normal
-        test_results_dict[metric] = result
-
+def save_metrics(test_results, model_dirs, current_epoch):
     print("###################### TEST REPORT ######################")
-    for metric in metric_list:
-        print("test {}\t       :\t {}".format(metric, np.round(test_results_dict[metric], 4)))
-    print("###################### TEST REPORT ######################")
+    for metric in test_results.keys():
+        print("+++++++++++++++++++++++++ Metric = {} +++++++++++++++++++++++++".format(metric))
+        for label in test_results[metric].keys():
+            print("Label {} Mean {}    :\t {}".format(label, metric, np.round(test_results[metric][label], 4)))
+    print("###################### TEST REPORT ######################\n")
 
     test_results_save_path = os.path.join(model_dirs, 'test_reports', 'test_report(EPOCH {}).txt'.format(current_epoch))
-    print(test_results_save_path)
+
     f = open(test_results_save_path, 'w')
 
     f.write("###################### TEST REPORT ######################\n")
-    for metric in metric_list:
-        f.write("test {}\t       :\t {}\n".format(metric, np.round(test_results_dict[metric], 4)))
-    f.write("###################### TEST REPORT ######################\n")
+    for metric in test_results.keys():
+        f.write("+++++++++++++++++++++++++ Metric = {} +++++++++++++++++++++++++\n".format(metric))
+        for label in test_results[metric].keys():
+            f.write("Label {} Mean {}    :\t {}\n".format(label, metric, np.round(test_results[metric][label], 4)))
+        f.write("\n")
+    f.write("###################### TEST REPORT ######################\n\n")
 
     f.close()
+
+    print("test results txt file is saved at {}".format(test_results_save_path))
 
 def save_loss(history, model_dirs):
     pd.DataFrame(history).to_csv(os.path.join(model_dirs, 'loss.csv'), index=False)

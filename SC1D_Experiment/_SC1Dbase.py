@@ -8,6 +8,7 @@ import random
 
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from SC1D_models import SC1D_model
 from utils.get_functions import *
@@ -38,7 +39,7 @@ class BaseSignalClassificationExperiment(object):
                                        num_workers=int((args.num_workers+args.ngpus_per_node-1)/args.ngpus_per_node) if args.distributed else args.num_workers,
                                        pin_memory=True, sampler=self.train_sampler)
         self.test_loader = DataLoader(test_dataset,
-                                      batch_size=int(args.batch_size / args.ngpus_per_node) if args.distributed else args.batch_size,
+                                      batch_size=1,
                                       shuffle=False,
                                       num_workers=int((args.num_workers+args.ngpus_per_node-1)/args.ngpus_per_node) if args.distributed else args.num_workers,
                                       pin_memory=True)
@@ -69,7 +70,7 @@ class BaseSignalClassificationExperiment(object):
         self.optimizer = get_optimizer(args.optimizer_name, self.model, args.lr, args.momentum, args.weight_decay)
 
         print("STEP4. Load LRS {}...".format(args.LRS_name))
-        self.scheduler = get_scheduler(args.LRS_name, self.optimizer, args.final_epoch, len(self.train_loader), args.lr)
+        self.scheduler = ReduceLROnPlateau(self.optimizer, 'min', factor=0.1, patience=7, min_lr=args.lr / 100)
 
         print("STEP5. Load Criterion {}...".format(args.criterion))
         self.criterion = get_criterion(args.criterion)
@@ -124,7 +125,7 @@ class BaseSignalClassificationExperiment(object):
         self.scaler.scale(loss).backward()
         self.scaler.step(self.optimizer)
         self.scaler.update()
-        if self.args.LRS_name == 'CALRS': self.scheduler.step()
+        # if self.args.LRS_name == 'CALRS': self.scheduler.step()
 
     def transform_generator(self, mode):
         if mode == 'train' :

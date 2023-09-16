@@ -1,7 +1,51 @@
 import torch
 
 import numpy as np
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score, jaccard_score, confusion_matrix)
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score, jaccard_score, confusion_matrix, multilabel_confusion_matrix)
+
+class MultiLeadECG_Classification_Metrics_Calculator(object):
+    def __init__(self):
+        super(MultiLeadECG_Classification_Metrics_Calculator).__init__()
+
+        self.threshold = np.array([0.124, 0.07, 0.05, 0.278, 0.390, 0.174])
+        self.disease_label = ['1dAVb', 'RBBB', 'LBBB', 'SB', 'ST', 'AF']
+        self.metrics_list = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+        self.total_metrics_dict = dict()
+        self.confusion_matrix = np.array([[[0, 0],
+                                          [0, 0]] for _ in range(len(self.disease_label))])
+        for metric in self.metrics_list:
+            self.total_metrics_dict[metric] = dict()
+            for disease_label in self.disease_label:
+                self.total_metrics_dict[metric][disease_label] = 0
+        print(self.total_metrics_dict)
+
+    def get_metrics_dict(self, y_pred, y_true):
+        y_pred = (y_pred.cpu().detach().numpy() >= self.threshold).astype(np.int_)
+        y_true = y_true.cpu().detach().numpy().astype(np.int_)
+
+        multilabel_confusion_matrix_sample = multilabel_confusion_matrix(y_true, y_pred)
+        for class_idx in range(len(self.disease_label)):
+            self.confusion_matrix[class_idx] += multilabel_confusion_matrix_sample[class_idx]
+
+        return self.confusion_matrix
+
+        # # [[TN, FT]
+        # #  [FN, TP]]
+        #
+        # metrics_dict = dict()
+        # for metric in self.metrics_list:
+        #     metrics_dict[metric] = dict()
+        #     for class_idx, disease_label in enumerate(self.disease_label):
+        #         metrics_dict[metric][disease_label] = dict()
+        #         metrics_dict[metric][disease_label] = self.get_metrics(metric, class_idx, y_pred, y_true)
+        #
+        # return metrics_dict
+
+    def get_metrics(self, metric, class_idx, y_pred, y_true):
+        if metric == 'Accuracy': return accuracy_score(y_true[:, class_idx], y_pred[:, class_idx])
+        elif metric == 'Precision': return precision_score(y_true[:, class_idx], y_pred[:, class_idx])
+        elif metric == 'Recall': return recall_score(y_true[:, class_idx], y_pred[:, class_idx])
+        elif metric == 'F1-Score': return f1_score(y_true[:, class_idx], y_pred[:, class_idx])
 
 def calculate_top1_error(output, target) :
     _, rank1 = torch.max(output, 1)

@@ -8,16 +8,15 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
 
 from utils.load_functions import load_model
-from utils.calculate_metrics import specificity_score, get_scores
+from utils.calculate_metrics import specificity_score, get_scores, MultiLeadECG_Classification_Metrics_Calculator
 from ._SC1Dbase import BaseSignalClassificationExperiment
 
 class SignalClassificationExperiment(BaseSignalClassificationExperiment):
     def __init__(self, args):
         super(SignalClassificationExperiment, self).__init__(args)
 
-        self.threshold = np.array([0.124, 0.07, 0.05, 0.278, 0.390, 0.174])
-
-        self.score_fun = {'Precision': precision_score, 'Recall': recall_score, 'Specificity': specificity_score, 'F1 score': f1_score}
+        # Metric Calculator Define
+        self.metrics_calculator = MultiLeadECG_Classification_Metrics_Calculator()
 
     def fit(self):
         self.print_params()
@@ -93,6 +92,7 @@ class SignalClassificationExperiment(BaseSignalClassificationExperiment):
                 total += signal.size(0)
 
         val_loss = total_loss / total
+        self.scheduler.step(val_loss)
 
         return val_loss
 
@@ -100,12 +100,12 @@ class SignalClassificationExperiment(BaseSignalClassificationExperiment):
         self.model.eval()
 
         total_loss, total = .0, 0
+        total_metrics_dict = self.metrics_calculator.total_metrics_dict
+
         y_true, y_pred = list(), list()
 
         with torch.no_grad():
-            for batch_idx, (signal, target) in enumerate(self.test_loader):
-                if (batch_idx + 1) % self.args.step == 0:
-                    print("EPOCH {} | {}/{}({}%) COMPLETE".format(epoch, batch_idx + 1, len(self.test_loader), np.round((batch_idx + 1) / len(self.test_loader) * 100), 4))
+            for batch_idx, (signal, target) in tqdm(enumerate(self.test_loader)):
 
                 self.start.record()
                 loss, output, target = self.forward(signal, target, mode='val')
@@ -114,18 +114,45 @@ class SignalClassificationExperiment(BaseSignalClassificationExperiment):
                 torch.cuda.synchronize()
                 self.inference_time_list.append(self.start.elapsed_time(self.end))
 
-                for y_true_, y_pred_ in zip(target, output):
-                    y_true.append(y_true_.cpu().detach().numpy())
-                    y_pred.append((torch.sigmoid(y_pred_).cpu().detach().numpy() >= 0.5).astype(np.int_))
+                # for y_true_, y_pred_ in zip(target, output):
+                #     y_true.append(y_true_.cpu().detach().numpy())
+                #     y_pred.append((torch.sigmoid(y_pred_).cpu().detach().numpy() >= 0.5).astype(np.int_))
+                predict = torch.sigmoid(output)
+                self.metrics_calculator.get_metrics_dict(predict, target)
 
                 total_loss += loss.item() * signal.size(0)
                 total += signal.size(0)
 
-        test_loss = total_loss / total
-        y_true, y_pred = np.array(y_true), np.array(y_pred)
+        # # [[TN, FP]
+        # #  [FN, TP]]
 
-        scores = get_scores(y_true, y_pred, self.score_fun)
+        test_loss = total_loss / total
+        print(self.metrics_calculator.confusion_matrix)
+        for metric in self.metrics_calculator.metrics_list:
+            for class_idx, disease_label in enumerate(self.metrics_calculator.disease_label):
+                if metric == 'Accuracy': result = (self.metrics_calculator.confusion_matrix[class_idx, 0, 0] + self.metrics_calculator.confusion_matrix[class_idx, 1, 1] + 1e-7) / (np.sum(self.metrics_calculator.confusion_matrix[class_idx]) + 1e-7)
+                elif metric == 'Precision': result = (self.metrics_calculator.confusion_matrix[class_idx, 1, 1] + 1e-7) / (self.metrics_calculator.confusion_matrix[class_idx, 1, 1] + self.metrics_calculator.confusion_matrix[class_idx, 0, 1] + 1e-7)
+                elif metric == 'Recall': result = (self.metrics_calculator.confusion_matrix[class_idx, 1, 1] + 1e-7) / (self.metrics_calculator.confusion_matrix[class_idx, 1, 1] + self.metrics_calculator.confusion_matrix[class_idx, 1, 0] + 1e-7)
+
+                total_metrics_dict[metric][disease_label] = result
+        for class_idx, disease_label in enumerate(self.metrics_calculator.disease_label):
+            precision = total_metrics_dict['Precision'][disease_label]
+            recall = total_metrics_dict['Recall'][disease_label]
+            total_metrics_dict['F1-Score'][disease_label] = 2 * (precision * recall) / (precision + recall + 1e-7)
+
+        print(total_metrics_dict)
+
+        # for metric in self.metrics_calculator.metrics_list:
+        #     for disease_label in self.metrics_calculator.disease_label:
+        #         total_metrics_dict[metric][disease_label].append(metrics_dict[metric][disease_label])
+        # y_true, y_pred = np.array(y_true), np.array(y_pred)
+        #
+        # scores = get_scores(y_true, y_pred, self.score_fun)
+
+        # for metric in self.metrics_calculator.metrics_list:
+        #     for disease_label in self.metrics_calculator.disease_label:
+        #         total_metrics_dict[metric][disease_label] = np.round(np.mean(total_metrics_dict[metric][disease_label]), 4)
 
         if self.args.final_epoch == epoch : print("Mean Inference Time (ms) : {} ({})".format(np.mean(self.inference_time_list), np.std(self.inference_time_list)))
 
-        return test_loss, scores
+        return total_metrics_dict
